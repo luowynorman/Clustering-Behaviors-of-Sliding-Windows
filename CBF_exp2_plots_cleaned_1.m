@@ -100,7 +100,7 @@ if RERUN_DATA || ~isfile(DATA_FILE)
     fprintf('=== Stage 1: generating data and computing distances ===\n');
 
     % --- Generate CBF dataset ---
-    [~, ~, ~, data_all, labels_all] = generate_CBF(n_rep, w, 42);  
+    [~, ~, ~, data_all, labels_all] = generate_CBF(n_rep, w, 42);  % take a random seed on CBF time series generation
     n_total = size(data_all, 1);
 
     perm       = randperm(n_total);

@@ -27,6 +27,7 @@ where $r+s$ is interpreted modulo $w$.
 # Detailed implementation
 
 * Required input: all z-normalized windows $`\lbrace z_i \rbrace_{i\in [m-w+1]}`$, the number of selected windows $`M`$ at each iteration, maximum iterations $`t_{\max}`$, and convergence tolerance $`\varepsilon`$.
+* Final output: $`k`$ medoids $`\lbrace y_j^{t+1} \rbrace_{j\in[k]}`$ and a partition of $`M`$ windows from $`\lbrace z_i \rbrace_{i\in [m-w+1]}`$ into their $`k`$ Voronoi cells under $`d`$.
 
 ## Step 1: Initialize $k$ candidate windows
 

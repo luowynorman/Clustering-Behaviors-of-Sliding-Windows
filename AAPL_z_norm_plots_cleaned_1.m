@@ -1,8 +1,79 @@
 %% =========================================================================
-%  AAPL Motif Discovery — Cyclic-Shift Medoid Clustering
-%  Stage 1: compute D_cyc once and save
-%  Stage 2: cluster for any k (saves results; reload to skip recompute)
-%  Stage 3: plots (MDS also cached)
+%  AAPL Stock — Cyclic-Shift Medoid Clustering on Log-Price Windows
+%
+%  OVERVIEW
+%  --------
+%  This script implements a multiscale medoid clustering pipeline on
+%  z-normalized sliding windows extracted from the log-price series of
+%  AAPL stock. The cyclic-shift distance is used as the primary metric,
+%  capturing shape similarity up to temporal shift within each window.
+%  The pipeline is organized into three cached stages:
+%
+%    Stage 1 — Distance computation (cached to D_FILE)
+%      - Reads closing prices from AAPL.csv and takes log
+%      - Extracts all z-normalized sliding windows of length w
+%      - Computes the N_wins x N_wins cyclic-shift distance matrix D_cyc
+%        via FFT-based cross-correlation
+%      - Results saved to D_FILE; reloaded unless RERUN_D = true
+%
+%    Stage 2 — Multiscale medoid clustering (cached to CLUSTER_FILE)
+%      - Initializes k medoids via k-means++ seeding on D_cyc
+%      - Iterates: multi-scale histogram top-bin collection ->
+%        consecutive-diff ranking -> top-M Voronoi partition ->
+%        medoid update -> convergence check (threshold: epsilon = 6)
+%      - Results saved to CLUSTER_FILE; reloaded unless RERUN_CLUSTER = true
+%      - NOTE: clustering randomness (k-means++ seeding) is controlled
+%        by rng(1) at the top of the script. If RERUN_D = false and
+%        RERUN_CLUSTER = true, the RNG state at the start of Stage 2
+%        depends on the MATLAB session; add rng(SEED_CLUSTER) immediately
+%        before the multiscale_medoid call for full reproducibility.
+%
+%    Stage 3 — MDS embeddings (cached to MDS_FILE)
+%      - MDS on the Voronoi-selected submatrix of D_cyc^2
+%      - MDS on the full D_cyc^2
+%      - MDS on the Euclidean D^2
+%      - Results saved to MDS_FILE; reloaded unless RERUN_MDS = true
+%
+%  VISUALIZATION (Figures 1–6)
+%  ---------------------------
+%    Figure 1: Voronoi cell members (z-norm waveforms per cluster)
+%    Figure 2: k medoid waveforms overlaid
+%    Figure 3: k-means centroids on z-normalized windows
+%    Figure 4: 2D MDS of Voronoi-selected windows (colored by cluster)
+%    Figure 5: 2D MDS of full D_cyc^2 (grey = unselected)
+%    Figure 6: 2D MDS of Euclidean D^2 (grey = unselected)
+%  All figures saved as .fig and .png to FIG_DIR.
+%
+%  REPRODUCIBILITY
+%  ---------------
+%  - Stage 1 (D_cyc): fully deterministic given AAPL.csv, w, TICKER.
+%    No randomness involved.
+%  - Stage 2 (clustering): k-means++ seeding draws from the global RNG.
+%    The top-level rng(1) controls this only when RERUN_D = true (Stage 1
+%    consumes no random draws, so the state is preserved). When
+%    RERUN_D = false, Stage 1 is skipped and the RNG state is whatever
+%    MATLAB initialized at startup. For guaranteed reproducibility across
+%    both cases, add rng(SEED_CLUSTER) before multiscale_medoid.
+%  - Stage 3 (MDS): fully deterministic given D_cyc and cluster results.
+%  - Figure 3 (k-means centroids): not explicitly seeded; not used
+%    downstream.
+%
+%  KEY PARAMETERS
+%  --------------
+%  w            : sliding window length (default: 100)
+%  k            : number of clusters — free to change after Stage 1
+%                 (default: 6)
+%  M            : Voronoi candidate set size per iteration (default: 600)
+%  RERUN_D      : if true, recompute D_cyc even if D_FILE exists
+%  RERUN_CLUSTER: if true, rerun clustering even if CLUSTER_FILE exists
+%  RERUN_MDS    : if true, rerun MDS even if MDS_FILE exists
+%
+%  OUTPUT FILES
+%  ------------
+%  D_FILE       : D_cyc_AAPL_w<w>.mat
+%  CLUSTER_FILE : CLUSTER_AAPL_w<w>_k<k>.mat
+%  MDS_FILE     : MDS_AAPL_w<w>_k<k>.mat
+%  FIG_DIR      : AAPL_figures_k<k>_M<M>/  (contains .fig and .png)
 %% =========================================================================
 clc; clear; close all;
 rng(1)
@@ -11,12 +82,11 @@ rng(1)
 TICKER     = 'AAPL';
 w          = 100;       % window length
 k          = 6;        % number of clusters (free to change after Stage 1)
-% M = max(k, round(N_wins * 0.005 * k));   % M windows kept in Voronoi step (k*(0.5))% by default)
 M = 600;
 
-RERUN_D       = false;  % true  → recompute D_cyc from scratch
-RERUN_CLUSTER = false;  % true  → rerun medoid clustering
-RERUN_MDS     = false;  % true  → rerun all MDS embeddings
+RERUN_D       = false;  % true: recompute D_cyc from scratch
+RERUN_CLUSTER = false;  % true: rerun medoid clustering
+RERUN_MDS     = false;  % true: rerun all MDS embeddings
 
 D_FILE       = sprintf('D_cyc_%s_w%d.mat',    TICKER, w);
 CLUSTER_FILE = sprintf('CLUSTER_%s_w%d_k%d.mat', TICKER, w, k);
@@ -303,7 +373,7 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
         return;
     end
  
-    % k-means++ seeding
+    % Step 1: k-means++ seeding
     seeds    = zeros(1, k);
     seeds(1) = randi(N);
     for s = 2:k
@@ -316,7 +386,7 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
  
     for iter = 1:max_iter
  
-        % Step 1: multi-scale top-bin collection
+        % Step 2: multi-scale top-bin collection
         top_bin_windows = [];
         for s = 1:k
             prof       = D(seeds(s), :);
@@ -344,7 +414,7 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
             top_bin_windows = 1:N;
         end
  
-        % Step 2: rank by avg |consecutive diff|, keep top M
+        % Step 3: rank by avg |consecutive diff|, keep top M
         valid = top_bin_windows(top_bin_windows >= 2);
         if length(valid) >= k
             avg_diff = zeros(1, length(valid));
@@ -359,10 +429,10 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
             selected = (1:N)'; % safeguard when there is too few valid windows (almost never happen)
         end
  
-        % Step 3: Voronoi partition of M selected windows
+        % Step 4: Voronoi partition of M selected windows
         [~, labels_sel] = min(D(selected, seeds), [], 2);
  
-        % Step 4: update medoids
+        % Step 5: update medoids
         new_seeds = zeros(1, k);
         for s = 1:k
             members = selected(labels_sel == s);
@@ -374,7 +444,7 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
             new_seeds(s) = members(best);
         end
  
-        % Step 5: convergence check
+        % Step 6: convergence check
         total_shift = sum(arrayfun(@(s) D(new_seeds(s), seeds(s)), 1:k));
         seeds = new_seeds;
         if total_shift < epsilon

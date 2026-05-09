@@ -1,8 +1,76 @@
 %% =========================================================================
 %  Experiment 2 — CBF Dataset: Cyclic-Shift Medoid Clustering
-%  Stage 1: generate data, compute D_cyc and D_euc, MDS embeddings (cached)
-%  Stage 2: multiscale medoid clustering (cached per k, M)
-%  Stage 3: plots (D-profile, histograms, Voronoi cells)
+%
+%  OVERVIEW
+%  --------
+%  This script implements a multiscale medoid clustering pipeline on the
+%  CBF (Cylinder-Bell-Funnel) dataset using cyclic-shift distance as the
+%  primary metric. The pipeline is organized into three stages:
+%
+%    Stage 1 — Data generation and distance computation (cached)
+%      - Generates the CBF dataset via generate_CBF (seed: SEED_CBF = 42)
+%      - Randomly permutes the 90 time series before concatenation
+%        (permutation seed is implicitly determined by the RNG state left
+%        by generate_CBF after its internal rng(42) call)
+%      - Extracts all z-normalized sliding windows of length w from the
+%        concatenated series
+%      - Computes the N x N cyclic-shift distance matrix D_cyc via FFT
+%      - Computes the N x N Euclidean distance matrix D_euc
+%      - Computes 2D MDS embeddings of both distance matrices
+%      - Results are saved to DATA_FILE and reused unless RERUN_DATA = true
+%
+%    Stage 2 — Multiscale medoid clustering (cached)
+%      - Initializes k medoids via k-means++ seeding on D_cyc
+%        (controlled by SEED_CLUSTER for reproducibility)
+%      - Iterates: multi-scale histogram top-bin collection ->
+%        consecutive-diff ranking -> top-M Voronoi partition ->
+%        medoid update -> convergence check (threshold: epsilon)
+%      - Results are saved to CLUSTER_FILE and reused unless
+%        RERUN_CLUSTER = true
+%
+%    Stage 3 — Visualization
+%      - Figure 1/2: 2D MDS embeddings (cyclic-shift and Euclidean)
+%      - Figure 3:   k-means centroids (k=3) vs global mean on Z
+%      - Figure 4:   D-profile of a random reference window z_i
+%      - Figure 5:   Absolute consecutive difference of that D-profile
+%      - Figure 6:   Final D-profile histograms at converged medoids
+%      - Figure 7:   Z-normalized waveforms of final Voronoi cell members
+%      All figures are saved as .fig and .png to FIG_DIR.
+%
+%  REPRODUCIBILITY
+%  ---------------
+%  - Stage 1 (Z, D_cyc, D_euc): fully determined by generate_CBF's
+%    internal rng(42), which also fixes the subsequent randperm call.
+%    Do not modify generate_CBF or insert any rng() call between
+%    generate_CBF and randperm, or the permutation will change.
+%  - Stage 2 (clustering): controlled by rng(SEED_CLUSTER) placed
+%    immediately before multiscale_medoid. This is independent of
+%    whether RERUN_DATA is true or false.
+%  - Stage 3 (D-profile reference window z_i): controlled by rng(1)
+%    placed immediately before randi(N).
+%  - Figure 3 (k-means centroids): not explicitly seeded; results may
+%    vary across runs but are not used downstream.
+%
+%  KEY PARAMETERS
+%  --------------
+%  w            : sliding window length (default: 128)
+%  n_rep        : number of instances per CBF class (default: 30)
+%  k            : number of clusters (default: 3)
+%  M            : Voronoi candidate set size per iteration (default: 90)
+%  epsilon      : medoid convergence threshold in cyclic-shift distance
+%                 units (default: 10)
+%  SEED_CLUSTER : RNG seed for k-means++ initialization (default: 1)
+%  RERUN_DATA   : if true, recompute Stage 1 even if DATA_FILE exists
+%  RERUN_CLUSTER: if true, recompute Stage 2 even if CLUSTER_FILE exists
+%
+%  OUTPUT FILES
+%  ------------
+%  DATA_FILE    : CBF_data_w<w>_nrep<n_rep>.mat
+%  CLUSTER_FILE : CBF_cluster_w<w>_k<k>_M<M>.mat
+%  FIG_DIR      : exp2_figures_k<k>_M<M>/  (contains .fig and .png)
+%% =========================================================================
+
+
 %% =========================================================================
 clc; clear; close all;
 rng(1);
@@ -12,7 +80,7 @@ w      = 128;
 n_rep  = 30;
 k      = 3;
 M      = 90;        % number of windows kept in Voronoi step
-epsilon = 5;        % convergence threshold for medoid shift
+epsilon = 10;        % convergence threshold for medoid shift (default = 10)
 
 class_names = {'Cylinder', 'Bell', 'Funnel'};
 cmap        = [0.00 0.40 0.80;
@@ -21,7 +89,7 @@ cmap        = [0.00 0.40 0.80;
 
 RERUN_DATA    = false;
 RERUN_CLUSTER = true;
-
+SEED_CLUSTER  = 1; % seeding for the iterative k-medoids selection (randomness comes from kmeans++)
 DATA_FILE    = sprintf('CBF_data_w%d_nrep%d.mat', w, n_rep);
 CLUSTER_FILE = sprintf('CBF_cluster_w%d_k%d_M%d.mat', w, k, M);
 
@@ -32,7 +100,7 @@ if RERUN_DATA || ~isfile(DATA_FILE)
     fprintf('=== Stage 1: generating data and computing distances ===\n');
 
     % --- Generate CBF dataset ---
-    [~, ~, ~, data_all, labels_all] = generate_CBF(n_rep, w, 42);
+    [~, ~, ~, data_all, labels_all] = generate_CBF(n_rep, w, 42);  % take a random seed for CBF generation
     n_total = size(data_all, 1);
 
     perm       = randperm(n_total);
@@ -98,6 +166,7 @@ end
 if RERUN_CLUSTER || ~isfile(CLUSTER_FILE)
     fprintf('=== Stage 2: clustering  k=%d,  M=%d ===\n', k, M);
     D_full = double(D_cyc);
+    rng(SEED_CLUSTER);
     [labels_full, selected, labels_sel, medoid_idx] = ...
         multiscale_medoid(D_full, N, k, M, epsilon);
     save(CLUSTER_FILE, 'labels_full', 'selected', 'labels_sel', 'medoid_idx', 'k', 'M');

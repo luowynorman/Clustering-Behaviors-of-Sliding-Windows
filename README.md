@@ -12,7 +12,7 @@ Denote the corresponding $z$-normalized windows by $\lbrace z_i\rbrace_{i\in[m-w
 
 We aim to detect recurrent patterns encoded in the time series by selecting $k$ representative windows from $\lbrace z_i\rbrace_{i\in[m-w+1]}$. 
 
-To this end, we use an iterative multiscale $k$-medoids selection heuristic motivated by the geometry of these windows under the cyclic-shift-invariant distance
+To this end, we use an iterative multiscale $k$-medoids selection heuristic motivated by the geometry under the cyclic-shift-invariant distance
 
 $$
 d(x,y):=\min_{s\in[w]}

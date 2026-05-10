@@ -24,12 +24,12 @@ $$
 
 where $r+s$ is interpreted modulo $w$.
 
-# Detailed implementation
+## Detailed implementation
 
 * Required input: all z-normalized windows $`\lbrace z_i \rbrace_{i\in [m-w+1]}`$, the number of selected windows $`M`$ at each iteration, maximum iterations $`t_{\max}`$, and convergence tolerance $`\varepsilon`$.
 * Final output: $`k`$ medoids $`\lbrace y_j^{t+1} \rbrace_{j\in[k]}`$ and a partition of $`M`$ windows from $`\lbrace z_i \rbrace_{i\in [m-w+1]}`$ into their $`k`$ Voronoi cells under $`d`$.
 
-## Step 1: Initialize $k$ candidate windows
+### Step 1: Initialize $k$ candidate windows
 
 Set $t=0$. Compute the pairwise distance matrix
 
@@ -43,7 +43,7 @@ $$
 \lbrace y_j^t\rbrace_{j\in[k]}\subset \lbrace z_i\rbrace_{i\in[m-w+1]}.
 $$
 
-## Step 2: Select windows from popular $d$-distance ranges
+### Step 2: Select windows from popular $d$-distance ranges
 
 For each bin-width $`\eta>0`$, define a sequence of level sets for each $`x\in \mathbb{R}^w`$ by
 
@@ -60,7 +60,7 @@ $$S^t(y_j^t):= \bigcap_{\eta\in \mathcal{B}}S^t_{\eta}(y_j^t).$$
 This multi-scale approach aims to make the selection robust against different bin-widths.
 
 
-## Step 3: Select windows with the smallest local variation in $d$-distance
+### Step 3: Select windows with the smallest local variation in $d$-distance
 
 Select $`M`$ sliding windows from
 
@@ -70,7 +70,7 @@ with the smallest average absolute consecutive difference in $`d(\cdot, y_j^t)`$
 
 $$C^t := \mathop{\arg\min}_{C \subset S^t \setminus \lbrace z_0 \rbrace, |C|=M} \quad \sum_{z_p \in C} \frac{1}{k} \sum_{j\in[k]} \Big| d_G(z_p, y_j^t) - d_G(z_{p-1}, y_j^t) \Big|$$
 
-## Step 4: Voronoi cell partition under $d$
+### Step 4: Voronoi cell partition under $d$
 
 Partition the selected subset $`C^t`$ using Voronoi cells of $`y_j^t`$'s, where the Voronoi cells are given by
 
@@ -79,13 +79,13 @@ $$V_j^t := \lbrace z_i \in C^t : d(z_i, y_j^t) \le d(z_i, y_{q}^t),\ \forall q \
 breaking ties arbitrarily.
 
 
-## Step 5: Update medoids
+### Step 5: Update medoids
 
 Within each Voronoi cell $`V_j^t`$, compute a new medoid $`y_j^{t+1}`$ by
 
 $$y^{t+1}_j \in \mathop{\arg\min}_{z_i \in V_j^t} \sum_{z_p \in V_j^t} d_G(z_p, z_i)$$
 
-## Step 6: Convergence check
+### Step 6: Convergence check
 
 If
 

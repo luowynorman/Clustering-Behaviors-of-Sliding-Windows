@@ -100,7 +100,7 @@ if RERUN_DATA || ~isfile(DATA_FILE)
     fprintf('=== Stage 1: generating data and computing distances ===\n');
 
     % --- Generate CBF dataset ---
-    [~, ~, ~, data_all, labels_all] = generate_CBF(n_rep, w, 42);  % take a random seed on CBF time series generation
+    [~, ~, ~, data_all, labels_all] = generate_CBF(n_rep, w, 42);  
     n_total = size(data_all, 1);
 
     perm       = randperm(n_total);
@@ -325,6 +325,46 @@ for s = 1:k
     xlim([1 w]); grid on; box on;
 end
 
+
+%% --- Figure 8: 2D MDS — with final medoids ---
+figure('Name', 'MDS 2D — Cyclic-shift with Medoids', 'Color', 'w');
+hold on;
+
+% All windows in grey
+scatter(Y_cyc2(:,1), Y_cyc2(:,2), 8, [0.75 0.75 0.75], 'filled', ...
+        'MarkerFaceAlpha', 0.25, 'DisplayName', 'All windows');
+
+% Exact boundary windows colored by class
+for c = 1:k
+    ei = exact_idx(exact_labels == c);
+    scatter(Y_cyc2(ei,1), Y_cyc2(ei,2), 120, cmap(c,:), 'filled', ...
+            'MarkerEdgeColor', 'k', 'LineWidth', 0.8, ...
+            'DisplayName', class_names{c});
+end
+
+% Final medoids as large stars
+medoid_colors = [0.85 0.10 0.10;
+                 0.10 0.65 0.10;
+                 0.10 0.40 0.85];
+
+% Final medoids as large black stars
+for s = 1:k
+    scatter(Y_cyc2(medoid_idx(s),1), Y_cyc2(medoid_idx(s),2),150, ...
+            'k', 'filled', 'p', ...
+            'MarkerEdgeColor', 'k', 'LineWidth', 2.0, ...
+            'DisplayName', sprintf('Medoid %d', s));
+end
+hold off;
+legend('Location', 'northwest', 'FontSize', 10);
+xlabel('dim 1'); ylabel('dim 2');
+title('MDS 2D — Cyclic-shift with Final Medoids');
+axis equal;
+ax = gca;
+lo = min([ax.XLim, ax.YLim]);
+hi = max([ax.XLim, ax.YLim]);
+xlim([lo hi]); ylim([lo hi]);
+grid on; box on;
+
 %% =========================================================================
 %  Save all figures
 %% =========================================================================
@@ -365,6 +405,8 @@ function plot_embedding_2d(Y, exact_idx, exact_labels, k, cmap, class_names, ttl
     xlim([lo hi]); ylim([lo hi]);
     grid on; box on;
 end
+
+
 
 %% =========================================================================
 %  Helper: MDS via sparse eigs (fast for large N)

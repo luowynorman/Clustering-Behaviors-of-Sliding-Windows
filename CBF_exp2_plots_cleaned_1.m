@@ -20,11 +20,16 @@
 %      - Results are saved to DATA_FILE and reused unless RERUN_DATA = true
 %
 %    Stage 2 — Multiscale medoid clustering (cached)
-%      - Initializes k medoids via k-means++ seeding on D_cyc
+%      - Step 1: Initializes k medoids via k-means++ seeding on D_cyc
 %        (controlled by SEED_CLUSTER for reproducibility)
-%      - Iterates: multi-scale histogram top-bin collection ->
-%        consecutive-diff ranking -> top-M Voronoi partition ->
-%        medoid update -> convergence check (threshold: epsilon)
+%      - Iteration starts: 
+%          Step 2: multi-scale histogram top-bin collection ->
+%          Step 3: consecutive-diff ranking -> 
+%          Step 4: top-M Voronoi partition ->
+%          Step 5: medoid update -> 
+%          Step 6: convergence check (threshold: epsilon)
+%                  below epsilon -> stop iteration
+%                  above epsilon -> Repeat Step 2 - 6
 %      - Results are saved to CLUSTER_FILE and reused unless
 %        RERUN_CLUSTER = true
 %
@@ -76,20 +81,20 @@ clc; clear; close all;
 rng(1);
 
 %% --- User parameters ---
-w      = 128;
-n_rep  = 30;
-k      = 3;
+w      = 128;       % length of sliding windows
+n_rep  = 30;        % number of examples of each type
+k      = 3;         % number of clusters
 M      = 90;        % number of windows kept in Voronoi step
-epsilon = 10;        % convergence threshold for medoid shift (default = 10)
+epsilon = 10;       % convergence threshold for medoid shift (default = 10)
 
-class_names = {'Cylinder', 'Bell', 'Funnel'};
+class_names = {'Cylinder', 'Bell', 'Funnel'}; % names of pure windows
 cmap        = [0.00 0.40 0.80;
                0.90 0.20 0.10;
-               0.10 0.70 0.20];
+               0.10 0.70 0.20]; % colors to distinguish pure windows
 
-RERUN_DATA    = false;
-RERUN_CLUSTER = true;
-SEED_CLUSTER  = 1; % seeding for the iterative k-medoids selection (randomness comes from kmeans++)
+RERUN_DATA    = false;  % true: rerun the data generation and recompute everything
+RERUN_CLUSTER = true;  % true: rerun the iterative filtered k-medoids algorithm
+SEED_CLUSTER  = 1;     % seeding for the iterative k-medoids selection (randomness comes from kmeans++)
 DATA_FILE    = sprintf('CBF_data_w%d_nrep%d.mat', w, n_rep);
 CLUSTER_FILE = sprintf('CBF_cluster_w%d_k%d_M%d.mat', w, k, M);
 
@@ -101,13 +106,15 @@ if RERUN_DATA || ~isfile(DATA_FILE)
 
     % --- Generate CBF dataset ---
     [~, ~, ~, data_all, labels_all] = generate_CBF(n_rep, w, 42);  
-    n_total = size(data_all, 1);
+    n_total = size(data_all, 1); % n_total = n_rep * k by default
 
-    perm       = randperm(n_total);
+    % random permutation of pure windows before concatenation
+    perm       = randperm(n_total); 
     data_all   = data_all(perm, :);
     labels_all = labels_all(perm);
 
-    ts = reshape(data_all', [], 1);   % concatenate into one long series
+    % concatenate into one long series
+    ts = reshape(data_all', [], 1);   
 
     % --- Z-normalize all sliding windows ---
     znorm    = @(v) (v - mean(v)) / max(std(v), 1e-10);
@@ -125,9 +132,10 @@ if RERUN_DATA || ~isfile(DATA_FILE)
     % --- Cyclic-shift distance matrix via FFT ---
     fprintf('Computing cyclic-shift D (%dx%d) ...\n', N, N);
     F        = fft(Z, [], 2);
-    norms_sq = sum(Z.^2, 2);
+    norms_sq = sum(Z.^2, 2); % norms_sq(i) = ||z_i||^2
     D_cyc    = zeros(N, N, 'single');
     for i = 1:N
+        % use FFT to speed up max inner product
         xc         = real(ifft(repmat(F(i,:), N, 1) .* conj(F), [], 2));
         vals       = norms_sq(i) + norms_sq - 2*max(xc, [], 2);
         D_cyc(i,:) = sqrt(single(max(vals, 0)));
@@ -166,7 +174,12 @@ end
 if RERUN_CLUSTER || ~isfile(CLUSTER_FILE)
     fprintf('=== Stage 2: clustering  k=%d,  M=%d ===\n', k, M);
     D_full = double(D_cyc);
-    rng(SEED_CLUSTER);
+    
+    rng(SEED_CLUSTER); % set a seed for iterative filtered k-medoids
+    % labels_full (Optional): the final Voronoi cells among all windows 
+    % selected: the final selected M windows
+    % labels_sel: the Voronoi cell assignment for the final selected M windows
+    % medoid_idx: the indices of the final k-medoids 
     [labels_full, selected, labels_sel, medoid_idx] = ...
         multiscale_medoid(D_full, N, k, M, epsilon);
     save(CLUSTER_FILE, 'labels_full', 'selected', 'labels_sel', 'medoid_idx', 'k', 'M');
@@ -192,7 +205,7 @@ plot_embedding_2d(Y_euc2, exact_idx, exact_labels, k, cmap, class_names, ...
 %% --- Figure 3: k-means centroids (k=3) vs global mean ---
 opts_km      = statset('Display', 'off', 'MaxIter', 500);
 [~, cents_k3] = kmeans(Z, k, 'Replicates', 10, 'Options', opts_km);
-cent_k1      = mean(Z, 1);
+cent_k1       = mean(Z, 1); % Optional: the average of all z-normalized windows
 
 colors_k3 = [0.85 0.10 0.10;
              0.10 0.65 0.10;
@@ -203,8 +216,8 @@ hold on;
 for c = 1:k
     plot(1:w, cents_k3(c,:), '-', 'Color', colors_k3(c,:), 'LineWidth', 2.0);
 end
-plot(1:w, cent_k1, '--', 'Color', [0.55 0.10 0.75], 'LineWidth', 2.0);
-yline(0, 'k:', 'LineWidth', 0.8, 'Alpha', 0.4);
+% plot(1:w, cent_k1, '--', 'Color', [0.55 0.10 0.75], 'LineWidth', 2.0);
+% yline(0, 'k:', 'LineWidth', 0.8, 'Alpha', 0.4);
 hold off;
 xlim([1 w]); ylim([-1.3 1.3]);
 xlabel('time index'); ylabel('z-normalized amplitude');
@@ -228,87 +241,89 @@ ei_range  = exact_idx(in_range); % collection of exact windows in range
 el_range  = exact_labels(in_range);
 
 figure('Name', sprintf('D-profile — reference window z_i=%d', z_i));
+set(gcf, 'Position', [100 100 1000 200]);   % [left, bottom, width, height]
 hold on;
-plot(idx_range, profile_local, 'Color', [0.6 0.6 0.6], 'LineWidth', 1.2, ...
-     'DisplayName', 'd_{cyc}-profile');
+plot(idx_range, profile_local, 'Color', [0.6 0.6 0.6], 'LineWidth', 2.0,...
+    'DisplayName', "d-distance");
 for c = 1:k
     ei_c = ei_range(el_range == c);
     if isempty(ei_c), continue; end
     stem(ei_c, D_full(z_i, ei_c), ...
          'Color', cmap(c,:), 'MarkerFaceColor', cmap(c,:), ...
-         'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 5, 'LineWidth', 1.0, ...
+         'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 5, 'LineWidth', 2.0, ...
          'DisplayName', class_names{c});
 end
-xline(z_i, 'k--', 'LineWidth', 1.2, 'DisplayName', sprintf('z_i=%d', z_i));
+xline(z_i, 'k--', 'LineWidth', 1.2, 'DisplayName', sprintf('{i}=%d', z_i));
 hold off;
-legend('Location', 'northwest', 'FontSize', 9);
-xlabel('window index'); ylabel('d_{cyc} distance');
-title(sprintf('d_{cyc}-profile  z_i=%d  (range [%d, %d])', z_i, range_lo, range_hi));
+lgd = legend('Location', 'eastoutside', 'FontSize',10);
+lgd.ItemTokenSize = [25, 5];
+xlabel('window index'); ylabel('d distance');
+title(sprintf('d-profile  z_i=%d  (range [%d, %d])', z_i, range_lo, range_hi));
 xlim([range_lo range_hi]); grid on; box on;
 
-%% --- Figure 5: Absolute consecutive difference of D-profile ---
-figure('Name', sprintf('Consecutive diff — z_i=%d', z_i));
-hold on;
-plot(idx_range_diff, consec_diff_local, 'Color', [0.6 0.6 0.6], 'LineWidth', 1.2, ...
-     'DisplayName', '|diff d_{cyc}|');
-for c = 1:k
-    ei_c  = ei_range(el_range == c);
-    ei_c  = ei_c(ei_c >= range_lo + 1);
-    if isempty(ei_c), continue; end
-    d_vals = abs(D_full(z_i, ei_c) - D_full(z_i, ei_c - 1));
-    stem(ei_c, d_vals, ...
-         'Color', cmap(c,:), 'MarkerFaceColor', cmap(c,:), ...
-         'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 5, 'LineWidth', 1.0, ...
-         'DisplayName', class_names{c});
-end
-xline(z_i, 'k--', 'LineWidth', 1.2, 'DisplayName', sprintf('z_i=%d', z_i));
-hold off;
-legend('Location', 'northwest', 'FontSize', 9);
-xlabel('window index'); ylabel('|d_{cyc}(z_j,z_i) - d_{cyc}(z_{j-1},z_i)|');
-title(sprintf('Consecutive diff of d_{cyc}-profile  z_i=%d', z_i));
-xlim([range_lo range_hi]); grid on; box on;
+%% --- Optional Figure 5: Absolute consecutive difference of D-profile ---
+% figure('Name', sprintf('Consecutive diff — z_i=%d', z_i));
+% hold on;
+% plot(idx_range_diff, consec_diff_local, 'Color', [0.6 0.6 0.6], 'LineWidth', 1.2, ...
+%      'DisplayName', '|diff d_{cyc}|');
+% for c = 1:k
+%     ei_c  = ei_range(el_range == c);
+%     ei_c  = ei_c(ei_c >= range_lo + 1);
+%     if isempty(ei_c), continue; end
+%     d_vals = abs(D_full(z_i, ei_c) - D_full(z_i, ei_c - 1));
+%     stem(ei_c, d_vals, ...
+%          'Color', cmap(c,:), 'MarkerFaceColor', cmap(c,:), ...
+%          'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 5, 'LineWidth', 1.0, ...
+%          'DisplayName', class_names{c});
+% end
+% xline(z_i, 'k--', 'LineWidth', 1.2, 'DisplayName', sprintf('z_i=%d', z_i));
+% hold off;
+% legend('Location', 'northwest', 'FontSize', 9);
+% xlabel('window index'); ylabel('|d_{cyc}(z_j,z_i) - d_{cyc}(z_{j-1},z_i)|');
+% title(sprintf('Consecutive diff of d_{cyc}-profile  z_i=%d', z_i));
+% xlim([range_lo range_hi]); grid on; box on;
 
-%% --- Figure 6: Final D-profile histograms with top bins highlighted ---
-n_top_bins_display = 2;
-bin_width_display  = 1 / n_top_bins_display;
+%% --- Optional Figure 6: Final D-profile histograms with top bins highlighted ---
+% n_top_bins_display = 2;
+% bin_width_display  = 1 / n_top_bins_display;
+% 
+% figure('Name', 'Final D-profile Histograms');
+% for s = 1:k
+%     subplot(k, 1, s);
+%     hold on;
+% 
+%     prof        = D_full(medoid_idx(s), :);
+%     edges       = 0 : bin_width_display : (max(prof) + bin_width_display);
+%     counts      = histcounts(prof, edges);
+%     bin_centers = edges(1:end-1) + bin_width_display/2;
+% 
+%     [~, top_bins] = maxk(counts, n_top_bins_display);
+%     bar_colors    = repmat([0.75 0.75 0.75], numel(bin_centers), 1);
+%     bar_colors(top_bins, :) = repmat([1.0 0.85 0.0], n_top_bins_display, 1);
+% 
+%     b        = bar(bin_centers, counts, 1, 'FaceColor', 'flat', 'EdgeColor', 'none');
+%     b.CData  = bar_colors;
+% 
+%     for c = 1:k
+%         ei    = exact_idx(exact_labels == c);
+%         d_v   = prof(ei);
+%         bin_id = min(floor(d_v / bin_width_display) + 1, numel(counts));
+%         stem(d_v, counts(bin_id), ...
+%              'Color', cmap(c,:), 'MarkerFaceColor', cmap(c,:), ...
+%              'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 5, 'LineWidth', 0.8, ...
+%              'DisplayName', class_names{c});
+%     end
+% 
+%     hold off;
+%     legend([{sprintf('Top %d bins', n_top_bins_display)}, class_names], ...
+%            'Location', 'best', 'FontSize', 9);
+%     xlabel('cyclic-shift distance'); ylabel('window count');
+%     title(sprintf('Medoid %d  (window %d,  bin width=%.3f)', ...
+%                   s, medoid_idx(s), bin_width_display));
+%     grid on; box on;
+% end
 
-figure('Name', 'Final D-profile Histograms');
-for s = 1:k
-    subplot(k, 1, s);
-    hold on;
-
-    prof        = D_full(medoid_idx(s), :);
-    edges       = 0 : bin_width_display : (max(prof) + bin_width_display);
-    counts      = histcounts(prof, edges);
-    bin_centers = edges(1:end-1) + bin_width_display/2;
-
-    [~, top_bins] = maxk(counts, n_top_bins_display);
-    bar_colors    = repmat([0.75 0.75 0.75], numel(bin_centers), 1);
-    bar_colors(top_bins, :) = repmat([1.0 0.85 0.0], n_top_bins_display, 1);
-
-    b        = bar(bin_centers, counts, 1, 'FaceColor', 'flat', 'EdgeColor', 'none');
-    b.CData  = bar_colors;
-
-    for c = 1:k
-        ei    = exact_idx(exact_labels == c);
-        d_v   = prof(ei);
-        bin_id = min(floor(d_v / bin_width_display) + 1, numel(counts));
-        stem(d_v, counts(bin_id), ...
-             'Color', cmap(c,:), 'MarkerFaceColor', cmap(c,:), ...
-             'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 5, 'LineWidth', 0.8, ...
-             'DisplayName', class_names{c});
-    end
-
-    hold off;
-    legend([{sprintf('Top %d bins', n_top_bins_display)}, class_names], ...
-           'Location', 'best', 'FontSize', 9);
-    xlabel('cyclic-shift distance'); ylabel('window count');
-    title(sprintf('Medoid %d  (window %d,  bin width=%.3f)', ...
-                  s, medoid_idx(s), bin_width_display));
-    grid on; box on;
-end
-
-%% --- Figure 7: Final Voronoi cell members ---
+%% --- Figure 7-(a): Final Voronoi cell members ---
 figure('Name', 'Final Voronoi Cell Members', 'Color', 'w');
 for s = 1:k
     subplot(k, 1, s);
@@ -325,7 +340,18 @@ for s = 1:k
     xlim([1 w]); grid on; box on;
 end
 
-
+%% --- Figure 7-(b): Overlaid k medoids ---
+figure('Name', 'Final k-medoids', 'Color', 'w', 'Position', [100 100 800 200]);
+hold on;
+for s = 1:k
+    plot(Z(medoid_idx(s), :), '-', 'Color', cmap(s,:), 'LineWidth', 2, ...
+         'DisplayName', sprintf('Medoid %d (i = %d)', s, medoid_idx(s)));
+end
+hold off;
+legend('Location', 'best');
+xlabel('time'); ylabel('z-norm');
+title('K-Medoids Overlay');
+xlim([1 w]); box on;
 %% --- Figure 8: 2D MDS — with final medoids ---
 figure('Name', 'MDS 2D — Cyclic-shift with Medoids', 'Color', 'w');
 hold on;
@@ -342,10 +368,6 @@ for c = 1:k
             'DisplayName', class_names{c});
 end
 
-% Final medoids as large stars
-medoid_colors = [0.85 0.10 0.10;
-                 0.10 0.65 0.10;
-                 0.10 0.40 0.85];
 
 % Final medoids as large black stars
 for s = 1:k
@@ -364,6 +386,45 @@ lo = min([ax.XLim, ax.YLim]);
 hi = max([ax.XLim, ax.YLim]);
 xlim([lo hi]); ylim([lo hi]);
 grid on; box on;
+
+
+
+
+%% --- Figure 9: k-means centroids on raw windows ---
+rng(1);
+opts_km = statset('Display', 'off', 'MaxIter', 500);
+
+% Raw sliding windows from the concatenated series
+Raw_wins = zeros(N, w);
+for i = 1:N
+    Raw_wins(i,:) = ts(i:i+w-1);
+end
+
+[~, k_centroids_pure]     = kmeans(data_all, k, 'Replicates', 10, 'Options', opts_km);
+[~, k_centroids_raw_wins] = kmeans(Raw_wins,  k, 'Replicates', 10, 'Options', opts_km);
+
+% (a) Pure CBF windows
+figure('Name', 'K-Means: pure CBF windows', 'Color', 'w', 'Position', [100 100 800 200]);
+hold on;
+for s = 1:k
+    plot(1:w, k_centroids_pure(s,:), '-', 'Color', cmap(s,:), 'LineWidth', 2);
+end
+hold off;
+xlabel('time'); ylabel('amplitude');
+title(sprintf('K-Means (k=%d) centroids — %d pure CBF windows', k, size(data_all,1)));
+xlim([1 w]); box on;
+
+% (b) All raw sliding windows
+figure('Name', 'K-Means: all raw sliding windows', 'Color', 'w', 'Position', [100 100 800 200]);
+hold on;
+for s = 1:k
+    plot(1:w, k_centroids_raw_wins(s,:), '-', 'Color', cmap(s,:), 'LineWidth', 2);
+end
+hold off;
+xlabel('time'); ylabel('amplitude');
+title(sprintf('K-Means (k=%d) centroids — all %d raw sliding windows', k, N));
+xlim([1 w]);  box on;
+
 
 %% =========================================================================
 %  Save all figures
@@ -413,12 +474,13 @@ end
 %% =========================================================================
 function [Y2, lambda_vals] = compute_mds(Dist, N)
     H           = eye(N) - ones(N,N)/N;
-    B           = -0.5 * H * double(Dist).^2 * H;
+    B           = -0.5 * H * double(Dist).^2 * H; % double centering
     B           = (B + B') / 2;
     [V, Lambda] = eigs(B, 2, 'largestreal');
     lambda_vals = real(diag(Lambda));
     lp          = max(lambda_vals, 0);
-    Y2          = V(:,1:2) * diag(sqrt(lp(1:2)));
+    % pick the top two coordinate representation
+    Y2          = V(:,1:2) * diag(sqrt(lp(1:2))); 
 end
 
 %% =========================================================================
@@ -428,15 +490,17 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
          multiscale_medoid(D, N, k, M, epsilon)
 
     max_iter        = 1000;
-    n_top_bins_list = [32, 16, 8, 4, 2];
+    % For each eta, set 1/eta bins to be collected for each y_j^t in Step 2
+    n_top_bins_list = [32, 16, 8, 4, 2]; 
 
-    if N <= k
-        labels_full = (1:N)';  selected = (1:N)';
-        labels_sel  = (1:N)';  medoid_idx = (1:k)';
-        return;
-    end
+    % safety check: in case number of windows less than k
+    % if N <= k
+    %     labels_full = (1:N)';  selected = (1:N)';
+    %     labels_sel  = (1:N)';  medoid_idx = (1:k)';
+    %     return;
+    % end
 
-    % Step 1: initialization with k-means++ seeding 
+    % Step 1: initialization with k-means++ under quotient metric d_cyc  
     seeds    = zeros(1, k);
     seeds(1) = randi(N);
     for s = 2:k
@@ -452,40 +516,55 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
         % Step 2: multi-scale top-bin collection
         top_bin_windows = [];
         for s = 1:k
-            prof       = D(seeds(s), :);
-            scale_sets = cell(length(n_top_bins_list), 1);
-            for sc = 1:length(n_top_bins_list)
-                n_top = n_top_bins_list(sc);
-                bw    = 1 / n_top;
-                edges = 0 : bw : (max(prof) + bw);
-                [cnt, ~] = histcounts(prof, edges);
+            prof       = D(seeds(s), :); % d-distance profile for a reference y_s^t
+            scale_sets = cell(length(n_top_bins_list), 1); % for top bins collection in different scales
+            for sc = 1:length(n_top_bins_list) % sc: index for the scale eta
+                n_top = n_top_bins_list(sc); % n_top: number of top bins with scale eta
+                bw    = 1 / n_top; % bin width eta := 1 / n_top
+                edges = 0 : bw : (max(prof) + bw); % divide the range of d-distance into partition of length bw
+                
+                % cnt(p) := #{elements within the bin edges(p)}
+                [cnt, ~] = histcounts(prof, edges); 
+                % top_bins := the indices of bins of the largest size
+                % numel(cnt) = the number of bin intervals
                 [~, top_bins] = maxk(cnt, min(n_top, numel(cnt)));
-                mem = [];
-                for b = top_bins
-                    mem = [mem, find(prof >= edges(b) & prof < edges(b+1))]; %#ok<AGROW>
+                
+                % collect members (in index) from the top bins
+                mem = []; 
+                for b = top_bins 
+                    mem = [mem, find(prof >= edges(b) & prof < edges(b+1))]; 
                 end
-                scale_sets{sc} = unique(mem);
+                % scale_sets{sc}:= S_eta^t(y_s^t)
+                scale_sets{sc} = unique(mem); % deduplication of members
             end
             sw = scale_sets{1};
+            % sw := S^t(y_s^t) = intersection of S_eta^t(y_s^t) with different eta
             for sc = 2:length(n_top_bins_list)
                 sw = intersect(sw, scale_sets{sc});
             end
+            % top_bin_windows:= union of S^t(y_s^t) among s = 1:k
             top_bin_windows = union(top_bin_windows, sw);
         end
-        top_bin_windows = top_bin_windows(top_bin_windows >= 2);
+
+        % Now top_bin_windows:= all indices of the top bin windows
         if length(top_bin_windows) < k
             top_bin_windows = 1:N;
         end
 
-        % Step 3: rank by avg |consecutive diff|, keep top M
-        valid = top_bin_windows(top_bin_windows >= 2);
-        if length(valid) >= k
+        % Step 3: rank top bin windows by average |consecutive diff|, keep
+        % the M windows with the smallest average |consecutive diff|
+        valid = top_bin_windows(top_bin_windows >= 2); % remove the first window z_0 index
+        if length(valid) >= k % for safety
             avg_diff = zeros(1, length(valid));
+            % compute the average consecutive difference with respect to the current k references
             for s = 1:k
-                consec   = abs(diff(D(seeds(s),:)));
+                % consec(j):= |d(y_s^t, z_{j+1} - d(y_s^t, z_{j}|
+                consec   = abs(diff(D(seeds(s),:))); 
                 avg_diff = avg_diff + consec(valid - 1);
             end
             avg_diff = avg_diff / k;
+
+            % pick the M windows with the smallest avg_diff
             [~, sort_idx] = sort(avg_diff, 'ascend');
             selected = valid(sort_idx(1 : min(M, length(valid))));
         else
@@ -498,16 +577,22 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
         % Step 5: update medoids
         new_seeds = zeros(1, k);
         for s = 1:k
+            % members = the Voronoi cell members of y_s^t among selected
+            % windows after Step 3
             members = selected(labels_sel == s);
-            if isempty(members)
-                new_seeds(s) = seeds(s); continue;
+            % in case some Voronoi cell is empty, keep the Voronoi cell as a singleton
+            if isempty(members) 
+                new_seeds(s) = seeds(s); continue; 
             end
+            % for each Voronoi cell, compute the new medoid
             D_cell       = D(members, members);
             [~, best]    = min(sum(D_cell, 2));
-            new_seeds(s) = members(best);
+            new_seeds(s) = members(best); % new_seeds(s):= y_s^{t+1}
         end
 
         % Step 6: convergence check
+        % total_shift:= the amount of change between the new and the old
+        % k-medoids
         total_shift = sum(arrayfun(@(s) D(new_seeds(s), seeds(s)), 1:k));
         seeds = new_seeds;
         if total_shift < epsilon
@@ -515,11 +600,14 @@ function [labels_full, selected, labels_sel, medoid_idx] = ...
             break;
         end
     end
+    % Report if the max iteration is reached
     if total_shift >= epsilon
         fprintf('multiscale_medoid did NOT converge after %d iterations  (total_shift=%.4f)\n', max_iter, total_shift);
     end
 
+    % medoid_idx:= the final k-medoids indices
     medoid_idx = seeds(:);
+    % Optional: compute the final Voronoi cell partition of all sliding windows 
     [~, labels_full] = min(D(:, seeds), [], 2);
 end
 
@@ -554,6 +642,7 @@ function [cylinder, bell, funnel, dataset, labels] = generate_CBF(N_per_class, w
         funnel(ii,:) = (6 + randn)*chi.*ramp + randn(1,w);
     end
 
+    % put labels on the pure windows
     dataset = [cylinder; bell; funnel];
     labels  = [ones(N_per_class,1); 2*ones(N_per_class,1); 3*ones(N_per_class,1)];
 end

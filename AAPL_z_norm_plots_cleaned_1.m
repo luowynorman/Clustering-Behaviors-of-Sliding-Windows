@@ -81,11 +81,11 @@ rng(1)
 %% --- User parameters ---
 TICKER     = 'AAPL';
 w          = 100;       % window length
-k          = 6;        % number of clusters (free to change after Stage 1)
+k          = 10;        % number of clusters (free to change after Stage 1)
 M = 600;
 
 RERUN_D       = false;  % true: recompute D_cyc from scratch
-RERUN_CLUSTER = false;  % true: rerun medoid clustering
+RERUN_CLUSTER = true;  % true: rerun medoid clustering
 RERUN_MDS     = false;  % true: rerun all MDS embeddings
 
 D_FILE       = sprintf('D_cyc_%s_w%d.mat',    TICKER, w);
@@ -102,10 +102,11 @@ if RERUN_D || ~isfile(D_FILE)
     price   = log(T.Close);
     N_wins  = length(price) - w + 1; % N_wins = number of windows
     znorm   = @(v) (v - mean(v)) / max(std(v), 1e-10);
-
+    windows_raw = zeros(N_wins, w);
     windows_z = zeros(N_wins, w);
     for i = 1:N_wins
-        windows_z(i,:) = znorm(price(i : i+w-1));
+        windows_raw(i,:) = price(i : i+w-1);
+        windows_z(i,:) = znorm(windows_raw(i,:));
     end
 
     fprintf('Computing D_cyc (%d x %d) ...\n', N_wins, N_wins);
@@ -119,11 +120,11 @@ if RERUN_D || ~isfile(D_FILE)
         if mod(i, 200) == 0, fprintf('  row %d / %d\n', i, N_wins); end
     end
 
-    save(D_FILE, 'D_cyc', 'windows_z', 'N_wins', 'w', 'TICKER', '-v7.3');
+    save(D_FILE, 'price', 'D_cyc', 'windows_z', 'windows_raw', 'N_wins', 'w', 'TICKER', '-v7.3');
     fprintf('Saved %s\n', D_FILE);
 else
     fprintf('=== Stage 1: loading %s ===\n', D_FILE);
-    load(D_FILE, 'D_cyc', 'windows_z', 'N_wins', 'w', 'TICKER');
+    load(D_FILE, 'price', 'D_cyc', 'windows_raw','windows_z', 'N_wins', 'w', 'TICKER');
     fprintf('Loaded.  N_wins=%d, w=%d\n', N_wins, w);
 end
 
@@ -267,8 +268,10 @@ scatter(Y_sel(:,1), Y_sel(:,2), 40, cmap(labels_sel,:), 'filled', 'MarkerFaceAlp
 for s = 1:k
     pos = find(selected == medoid_idx(s), 1);
     if ~isempty(pos)
-        scatter(Y_sel(pos,1), Y_sel(pos,2), 120, cmap(s,:), 'filled', ...
-                'MarkerEdgeColor','k','LineWidth',1.5);
+        % scatter(Y_sel(pos,1), Y_sel(pos,2), 120, cmap(s,:), "p", 'filled', ...
+        %         'MarkerEdgeColor','k','LineWidth',1.5);
+        scatter(Y_sel(pos,1), Y_sel(pos,2), 180, 'k', 'p', 'filled', ...
+            'MarkerEdgeColor', 'k', 'LineWidth', 1.5);
         % text(Y_sel(pos,1), Y_sel(pos,2), sprintf('  m_%d',s), ...
         %      'FontSize',9,'Color','k','FontWeight','bold');
     end
@@ -293,8 +296,8 @@ for s = 1:k
     scatter(Y_full(cell_idx,1), Y_full(cell_idx,2), 40, cmap(s,:), 'filled', 'MarkerFaceAlpha', 0.8);
 end
 for s = 1:k
-    scatter(Y_full(medoid_idx(s),1), Y_full(medoid_idx(s),2), 150, cmap(s,:), ...
-            'filled','MarkerEdgeColor','k','LineWidth',1.5);
+    scatter(Y_full(medoid_idx(s),1), Y_full(medoid_idx(s),2), 150, cmap(s,:), "p", ...
+            'filled','MarkerEdgeColor','k','LineWidth',1);
 end
 hold off;
 axis equal;
@@ -319,7 +322,41 @@ hold off;
 axis equal;
 grid on; box on;
 
+%% =========================================================================
+%  Figure 7: k=10 k-means centroids on RAW (un-z-normed) windows
+%% =========================================================================
+k_raw    = 10;
+cmap_raw = hsv2rgb([(0:k_raw-1)'/k_raw, 0.75*ones(k_raw,1), 0.92*ones(k_raw,1)]);
 
+opts_raw      = statset('Display','off','MaxIter',500);
+labels_raw    = kmeans(windows_raw, k_raw, 'Replicates', 5, 'Options', opts_raw);
+centroids_raw = zeros(k_raw, w);
+for s = 1:k_raw
+    centroids_raw(s,:) = mean(windows_raw(labels_raw == s, :), 1);
+end
+
+figure('Color','w','Position',[100,100,800,200], ...
+       'Name', sprintf('k-means Raw Centroids — %s  k=%d', TICKER, k_raw));
+hold on;
+for s = 1:k_raw
+    plot(1:w, centroids_raw(s,:), 'Color', cmap_raw(s,:), 'LineWidth', 2);
+end
+hold off;
+xlabel('time'); ylabel('raw');
+title(sprintf('%s  —  %d k-means centroids on raw log-price windows  (w=%d)', ...
+      TICKER, k_raw, w), 'FontSize', 11, 'FontWeight', 'normal');
+xlim([1 w]);  box on;
+
+%% =========================================================================
+%  Figure 8: Original log-price time series
+%% =========================================================================
+figure('Color','w','Position',[100,100,800,200], ...
+       'Name', sprintf('Log Price — %s', TICKER));
+plot(price, 'Color', [0.15 0.35 0.65], 'LineWidth', 2.0);
+xlabel('trading day index'); ylabel('log(Close)');
+title(sprintf('%s  —  log closing price  (N=%d days)', TICKER, length(price)), ...
+      'FontSize', 11, 'FontWeight', 'normal');
+xlim([1 length(price)]); box on;
 
 %% =========================================================================
 %  Save all figures

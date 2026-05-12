@@ -37,7 +37,29 @@ $$
 D=\bigl[d(z_i,z_j)\bigr]_{i,j\in[m-w+1]}.
 $$
 
-Then use $k$-means++ under the distance $d$ to select $k$ initial candidate windows
+#### d-distance computation
+
+The cyclic-shift-invariant distance between two windows $x, y \in \mathbb{R}^w$ is 
+
+$$
+d(x, y) = \min_{s \in [w]} \|x - T_s y\|,
+$$
+
+where $T_s y$ denotes the cyclic shift of $y$ by $s$ positions. By Parseval's identity,
+
+$$
+\langle x, T_s y \rangle = \textnormal{IDFT}(\textnormal{DFT}(x) \odot \overline{\textnormal{DFT}(y)})[s],
+$$
+
+so the distance admits the closed form
+
+$$
+d(x, y)^2 = \|x\|^2 + \|y\|^2 - 2\max_{s \in [w]} \textnormal{IDFT}(\textnormal{DFT}(x) \odot \overline{\textnormal{DFT}(y)})[s],
+$$
+
+which reduces computing $d$ to two FFTs and one IFFT, so the complexity for each d(x,y) is in $`O(w\cdot log(w))`$.
+
+Then use $k$-means++ under the distance $d$ to select $k$ initial candidate windows.
 
 $$
 \lbrace y_s^t\rbrace_{s\in[k]}\subset \lbrace z_i\rbrace_{i\in[m-w+1]}.

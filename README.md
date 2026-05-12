@@ -27,7 +27,7 @@ where $r+s$ is interpreted modulo $w$.
 ## Detailed implementation
 
 * Required input: all z-normalized windows $`\lbrace z_i \rbrace_{i\in [m-w+1]}`$, the number of selected windows $`M`$ for each iteration, maximum iterations $`t_{\max}`$, and convergence tolerance $`\varepsilon`$.
-* Final output: $`k`$ medoids $`\lbrace y_j^{t+1} \rbrace_{j\in[k]}`$ and a partition of $`M`$ windows from $`\lbrace z_i \rbrace_{i\in [m-w+1]}`$ into their $`k`$ Voronoi cells under $`d`$.
+* Final output: $`k`$ medoids $`\lbrace y_s^{t+1} \rbrace_{s\in[k]}`$ and a partition of $`M`$ windows from $`\lbrace z_i \rbrace_{i\in [m-w+1]}`$ into their $`k`$ Voronoi cells under $`d`$.
 
 ### Step 1: Initialize $k$ candidate windows
 
@@ -40,7 +40,7 @@ $$
 Then use $k$-means++ under the distance $d$ to select $k$ initial candidate windows
 
 $$
-\lbrace y_j^t\rbrace_{j\in[k]}\subset \lbrace z_i\rbrace_{i\in[m-w+1]}.
+\lbrace y_s^t\rbrace_{s\in[k]}\subset \lbrace z_i\rbrace_{i\in[m-w+1]}.
 $$
 
 ### Step 2: Select windows from popular $d$-distance ranges
@@ -51,11 +51,11 @@ $$I_{p,\eta}(x) = \lbrace z_i: d(z_i, x) \in [p\eta, (p+1)\eta ) \rbrace, \quad 
 
 so that $`\lbrace I_{p,\eta}(x) \rbrace_{p\in \mathbb{N}}`$ forms a partition of the z-normalized windows.
 
-For each $`j\in [k]`$ and each bin-width $\eta \in \mathcal{B}=\lbrace 2^{-5}, 2^{-4}, 2^{-3}, 2^{-2},2^{-1}\rbrace,$ 
-collect the $`\frac{1}{\eta}`$-most populated level set among $`\lbrace I_{p,\eta}(y_j^t) \rbrace_{p\ge 0}`$, and denote their union by $`S^t_{\eta}(y_j^t)`$.
+For each $`s\in [k]`$ and each bin-width $\eta \in \mathcal{B}=\lbrace 2^{-5}, 2^{-4}, 2^{-3}, 2^{-2},2^{-1}\rbrace,$ 
+collect the $`\frac{1}{\eta}`$-most populated level set among $`\lbrace I_{p,\eta}(y_s^t) \rbrace_{p\ge 0}`$, and denote their union by $`S^t_{\eta}(y_s^t)`$.
 Then construct the intersection
 
-$$S^t(y_j^t):= \bigcap_{\eta\in \mathcal{B}}S^t_{\eta}(y_j^t).$$
+$$S^t(y_s^t):= \bigcap_{\eta\in \mathcal{B}}S^t_{\eta}(y_s^t).$$
 
 This multi-scale approach aims to make the selection robust against different bin-widths.
 
@@ -64,31 +64,31 @@ This multi-scale approach aims to make the selection robust against different bi
 
 Select $`M`$ sliding windows from
 
-$$S^t = \bigcup_{j\in[k]} S^t(y_j^t)$$
+$$S^t = \bigcup_{s\in[k]} S^t(y_s^t)$$
 
-with the smallest average absolute consecutive difference in $`d(\cdot, y_j^t)`$, i.e., these $`M`$ windows correspond to an arbitrary minimizer of the following problem
+with the smallest average absolute consecutive difference in $`d(\cdot, y_s^t)`$, i.e., these $`M`$ windows correspond to an arbitrary minimizer of the following problem
 
-$$C^t := \mathop{\arg\min}_{C \subset S^t \setminus \lbrace z_0 \rbrace, |C|=M} \quad \sum_{z_p \in C} \frac{1}{k} \sum_{j\in[k]} \Big| d_G(z_p, y_j^t) - d_G(z_{p-1}, y_j^t) \Big|$$
+$$C^t := \mathop{\arg\min}_{C \subset S^t \setminus \lbrace z_0 \rbrace, |C|=M} \quad \sum_{z_p \in C} \frac{1}{k} \sum_{s\in[k]} \Big| d_G(z_p, y_s^t) - d_G(z_{p-1}, y_s^t) \Big|$$
 
 ### Step 4: Voronoi cell partition under $d$
 
-Partition the selected subset $`C^t`$ using Voronoi cells of $`y_j^t`$'s, where the Voronoi cells are given by
+Partition the selected subset $`C^t`$ using Voronoi cells of $`y_s^t`$'s, where the Voronoi cells are given by
 
-$$V_j^t := \lbrace z_i \in C^t : d(z_i, y_j^t) \le d(z_i, y_{q}^t),\ \forall q \neq j \rbrace,$$
+$$V_s^t := \lbrace z_i \in C^t : d(z_i, y_s^t) \le d(z_i, y_{q}^t),\ \forall q \neq s \rbrace,$$
 
 breaking ties arbitrarily.
 
 
 ### Step 5: Update medoids
 
-Within each Voronoi cell $`V_j^t`$, compute a new medoid $`y_j^{t+1}`$ by
+Within each Voronoi cell $`V_s^t`$, compute a new medoid $`y_s^{t+1}`$ by
 
-$$y^{t+1}_j \in \mathop{\arg\min}_{z_i \in V_j^t} \sum_{z_p \in V_j^t} d_G(z_p, z_i)$$
+$$y^{t+1}_s \in \mathop{\arg\min}_{z_i \in V_s^t} \sum_{z_p \in V_s^t} d_G(z_p, z_i)$$
 
 ### Step 6: Convergence check
 
 If
 
-$$\sum_{j\in [k]} d_G(y_j^{t+1}, y_j^t) \le \varepsilon$$
+$$\sum_{s\in [k]} d_G(y_s^{t+1}, y_s^t) \le \varepsilon$$
 
-or $`t \ge t_{\max}`$, stop iterations and report the final $`k`$ medoids $`\lbrace y_j^{t+1} \rbrace_{j\in [k]}`$ and their Voronoi cell members. Otherwise, let $`t \leftarrow t+1`$ and repeat Step 2 to Step 6.
+or $`t \ge t_{\max}`$, stop iterations and report the final $`k`$ medoids $`\lbrace y_s^{t+1} \rbrace_{s\in [k]}`$ and their Voronoi cell members. Otherwise, let $`t \leftarrow t+1`$ and repeat Step 2 to Step 6.

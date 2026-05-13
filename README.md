@@ -74,7 +74,7 @@ $$I_{p,\eta}(x) = \lbrace z_i: d(z_i, x) \in [p\eta, (p+1)\eta ) \rbrace, \quad 
 so that $`\lbrace I_{p,\eta}(x) \rbrace_{p\in \mathbb{N}}`$ forms a partition of the z-normalized windows.
 
 For each $`s\in [k]`$ and each bin-width $\eta \in \mathcal{B}=\lbrace 2^{-5}, 2^{-4}, 2^{-3}, 2^{-2},2^{-1}\rbrace,$ 
-collect the $`\frac{1}{\eta}`$-most populated level set among $`\lbrace I_{p,\eta}(y_s^t) \rbrace_{p\ge 0}`$, and denote their union by $`S^t_{\eta}(y_s^t)`$.
+collect the $`\frac{1}{\eta}`$-most populated level sets among $`\lbrace I_{p,\eta}(y_s^t) \rbrace_{p\ge 0}`$, and denote their union by $`S^t_{\eta}(y_s^t)`$.
 Then construct the intersection
 
 $$S^t(y_s^t):= \bigcap_{\eta\in \mathcal{B}}S^t_{\eta}(y_s^t).$$

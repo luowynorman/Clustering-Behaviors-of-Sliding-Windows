@@ -1,4 +1,4 @@
-# Clustering sliding windows by an iterative filtered $k$-medoids algorithm under a cyclical quotient metric
+# Clustering sliding windows by an iterative filtered $k$-medoids algorithm under a cyclic quotient metric
 
 Denote $[p]=\lbrace 0,1,\ldots,p-1\rbrace$.
 
